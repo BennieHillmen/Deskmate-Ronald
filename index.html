@@ -132,10 +132,11 @@
     <div class="buttons">
       <button class="primary" id="saveSettings" type="button">Opslaan</button>
       <button class="secondary" id="testVoice" type="button">Test stem</button>
+      <button class="secondary" id="testBeep" type="button">Piepje</button>
       <button class="secondary" id="clearChat" type="button">Gesprek wissen</button>
     </div>
     <div class="small" id="settingsNote"></div>
-    <div class="small" id="appVersion" style="margin-top:14px;opacity:.6">DeskMate-app versie 1.5 · 9 november 2026</div>
+    <div class="small" id="appVersion" style="margin-top:14px;opacity:.6">DeskMate-app versie 1.6 · 9 november 2026</div>
   </div>
 </div>
 
@@ -496,8 +497,9 @@ async function sayPc(text, id) {
   currentSrc = src; talking = true; speechNote('');
   osc.start(); src.start();
 }
+let lastCancel = 0;
 function stopSpeech() {
-  if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
+  if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) { speechSynthesis.cancel(); lastCancel = performance.now(); }
   if (currentSrc) { const s = currentSrc; currentSrc = null; for (const n of robotNodes) { try { n.stop(); } catch (e) {} } robotNodes = []; void s; }
   talking = false;
 }
@@ -523,8 +525,8 @@ function sayIphone(text) {
       if (!talking) speechNote('Ik hoor mezelf niet. Staat je iPhone op stil (schakelaar/actieknop) of het volume op 0?');
     }, 2500);
   };
-  // iOS-bug: direct na cancel() spreken geeft geen geluid; daarom even wachten
-  setTimeout(speak, 250);
+  // iOS: spreken moet direct binnen de tik gebeuren; alleen vlak na cancel() even wachten
+  if (performance.now() - lastCancel < 300) setTimeout(speak, 250); else speak();
 }
 let currentUtt = null, noSoundTimer = 0;
 function speechNote(t) {
@@ -723,8 +725,16 @@ $('loadPcVoices').addEventListener('click', async () => {
 $('saveSettings').addEventListener('click', () => { readSettings(); store.set('deskmate.settings', S); $('settingsScreen').hidden = true; });
 $('testVoice').addEventListener('click', () => {
   readSettings(); unlockAudio();
-  $('settingsNote').textContent = voices.length ? 'Stem testen…' : 'Geen Nederlandse stem gevonden; de standaardstem wordt gebruikt.';
+  $('settingsNote').textContent = (S.voiceSrc === 'pc' && ttsUrl()) ? 'Stem van de pc testen via ' + ttsUrl() + ' …' : (voices.length ? 'iPhone-stem testen…' : 'iPhone-stem testen (geen Nederlandse stem gevonden)…');
   say(`Hoi ${S.user}, ik ben ${S.name}.`, 'blij');
+});
+$('testBeep').addEventListener('click', () => {
+  const c = audioCtx(); if (!c) { $('settingsNote').textContent = 'Geen Web Audio in deze browser.'; return; }
+  setAudioSession('playback');
+  const o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; g.gain.value = 0.25;
+  o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + 0.3);
+  o.onended = () => setAudioSession('auto');
+  $('settingsNote').textContent = 'Hoor je een piepje? Dan werkt het geluid van de app. Geen piepje: zet het volume omhoog.';
 });
 $('clearChat').addEventListener('click', () => { history = []; $('settingsNote').textContent = 'Gesprek gewist.'; });
 $('loadModels').addEventListener('click', async () => {
