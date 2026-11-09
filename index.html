@@ -136,7 +136,7 @@
       <button class="secondary" id="clearChat" type="button">Gesprek wissen</button>
     </div>
     <div class="small" id="settingsNote"></div>
-    <div class="small" id="appVersion" style="margin-top:14px;opacity:.6">DeskMate-app versie 1.8 · 9 november 2026</div>
+    <div class="small" id="appVersion" style="margin-top:14px;opacity:.6">DeskMate-app versie 1.9 · 9 november 2026</div>
   </div>
 </div>
 
@@ -199,7 +199,16 @@ window.addEventListener('resize', resize); resize();
 function lerp(a, b, t) { return a + (b - a) * t; }
 function colors() {
   const dark = S.bg === 'donker';
-  return { bg: dark ? '#141416' : '#f5f2ea', ink: dark ? '#ecebe6' : '#151515', white: '#ffffff', iris: S.color || '#1f6fc4' };
+  const iris = S.color || '#1f6fc4';
+  if (dark) return {
+    dark, bg: '#0e0f13', white: '#f4f2ec', iris,
+    line: '#000000',          // rand van het oog en ooglidlijn
+    lid: '#2a2c36',           // ooglid-huid, iets lichter dan de achtergrond
+    brow: '#cfc9bd',          // lichte wenkbrauwen, zichtbaar op donker
+    text: '#9a968e',
+    glow: 'rgba(110,165,255,0.28)'
+  };
+  return { dark, bg: '#f5f2ea', white: '#ffffff', iris, line: '#151515', lid: '#f5f2ea', brow: '#151515', text: '#151515', glow: null };
 }
 
 function drawEye(cx, cy, R, side, o, brow, C) {
@@ -211,6 +220,11 @@ function drawEye(cx, cy, R, side, o, brow, C) {
   const lowCy = cy + ry * 2.4 - face.lower * ry * 1.3, lowRx = rx * 1.3, lowRy = ry * 1.15;
   const eyePath = () => { ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); };
 
+  // 0. Zachte gloed rond het oog (donkere achtergrond)
+  if (C.glow) {
+    ctx.save(); ctx.shadowColor = C.glow; ctx.shadowBlur = R * 0.6;
+    ctx.fillStyle = C.lid; eyePath(); ctx.fill(); ctx.restore();
+  }
   // 1. Oogwit, iris, pupil en lichtpuntjes binnen de oogvorm
   ctx.save(); eyePath(); ctx.clip();
   ctx.fillStyle = C.white; ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
@@ -228,8 +242,8 @@ function drawEye(cx, cy, R, side, o, brow, C) {
   const sh = ctx.createLinearGradient(0, yLid, 0, yLid + R * 0.35);
   sh.addColorStop(0, 'rgba(0,0,0,0.18)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = sh; ctx.fillRect(cx - rx, yLid - R, rx * 2, R * 1.4);
-  // bovenlid en onderlid in achtergrondkleur
-  ctx.fillStyle = C.bg;
+  // bovenlid en onderlid (huidkleur; op licht = achtergrondkleur)
+  ctx.fillStyle = C.lid;
   ctx.beginPath(); ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.lineTo(outer, cy - ry * 3); ctx.lineTo(inner, cy - ry * 3); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
@@ -239,6 +253,16 @@ function drawEye(cx, cy, R, side, o, brow, C) {
   ctx.beginPath(); ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.lineTo(outer, cy - ry * 3); ctx.lineTo(inner, cy - ry * 3); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
+  if (C.lid !== C.bg) {       // op donker: oogleden opnieuw in huidkleur binnen de oogvorm
+    ctx.save(); eyePath(); ctx.clip(); ctx.fillStyle = C.lid;
+    ctx.beginPath(); ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.lineTo(outer, cy - ry * 3); ctx.lineTo(inner, cy - ry * 3); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, 0, Math.PI * 2); ctx.fill();
+    // lichte rand bovenop het ooglid voor diepte
+    const lg = ctx.createLinearGradient(0, yLid - R * 0.5, 0, yLid);
+    lg.addColorStop(0, 'rgba(255,255,255,0)'); lg.addColorStop(1, 'rgba(255,255,255,0.07)');
+    ctx.fillStyle = lg; ctx.fillRect(cx - rx, yLid - R * 0.5, rx * 2, R * 0.5);
+    ctx.restore();
+  }
 
   // 2. Omlijning van de oogkom: alleen onder het bovenlid en boven het onderlid
   ctx.save();
@@ -246,20 +270,20 @@ function drawEye(cx, cy, R, side, o, brow, C) {
   ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.lineTo(outer, cy + ry * 3); ctx.lineTo(inner, cy + ry * 3); ctx.closePath();
   ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, 0, Math.PI * 2);
   ctx.clip('evenodd');
-  ctx.strokeStyle = C.ink; ctx.lineWidth = R * 0.075; eyePath(); ctx.stroke();
+  ctx.strokeStyle = C.line; ctx.lineWidth = R * 0.075; eyePath(); ctx.stroke();
   ctx.restore();
 
   // 3. Dikke ooglidlijn
   ctx.save();
   ctx.beginPath(); ctx.ellipse(cx, cy, rx * 1.1, ry * 1.1, 0, 0, Math.PI * 2); ctx.clip();
-  ctx.strokeStyle = C.ink; ctx.lineWidth = R * 0.13; ctx.lineCap = 'round';
+  ctx.strokeStyle = C.line; ctx.lineWidth = R * 0.13; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.stroke();
   ctx.restore();
 
   // 4. Onderlid-lijntje bij lachen
   if (face.lower > 0.08 && o > 0.05) {
     ctx.save(); eyePath(); ctx.clip();
-    ctx.strokeStyle = C.ink; ctx.lineWidth = R * 0.07;
+    ctx.strokeStyle = C.line; ctx.lineWidth = R * 0.07;
     ctx.beginPath(); ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, Math.PI, Math.PI * 2); ctx.stroke();
     ctx.restore();
   }
@@ -270,7 +294,7 @@ function drawEye(cx, cy, R, side, o, brow, C) {
   const baseY = cy - ry - R * 0.5 - bY * R;
   const yi = baseY + bT * R * 0.45, yo = baseY - bT * R * 0.15 + R * 0.12;
   const ctrlY = Math.min(yi, yo) - bA * R * 0.6, th = R * 0.3;
-  ctx.fillStyle = C.ink; ctx.strokeStyle = C.ink; ctx.lineWidth = R * 0.07; ctx.lineJoin = 'round';
+  ctx.fillStyle = C.brow; ctx.strokeStyle = C.brow; ctx.lineWidth = R * 0.07; ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(xi, yi);
   ctx.quadraticCurveTo(mx, ctrlY - th, xo, yo);
@@ -329,7 +353,7 @@ function frame(now) {
   drawEye(cx + R * 1.38, cy, R, 1, o, br, C);
 
   if (sleeping && !listening && !talking) {
-    ctx.fillStyle = C.ink;
+    ctx.fillStyle = C.text;
     ctx.font = `600 ${Math.round(base * 0.05)}px -apple-system, sans-serif`;
     const zt = (now / 1200) % 1;
     ctx.globalAlpha = 0.6 * (1 - zt);
