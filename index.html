@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DeskMate">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-512.png">
+<title>DeskMate</title>
+<style>
+  :root { --eye: #7fe7ff; --ui: #1c1c1e; --ui2: #2c2c2e; --txt: #f2f2f7; --muted: #a1a1aa; --accent: #0a84ff; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--txt); overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+  #face { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
+  #cam { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  #caption { position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    max-width: min(92vw, 900px); text-align: center; font-size: 17px; line-height: 1.35; color: #e5e5ea;
+    background: rgba(28,28,30,.72); padding: 8px 14px; border-radius: 14px; opacity: 0; transition: opacity .4s; pointer-events: none; }
+  #caption.show { opacity: 1; }
+  #caption .you { color: var(--muted); display: block; font-size: 14px; }
+  #gear { position: fixed; top: max(10px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
+    width: 40px; height: 40px; border-radius: 20px; border: 0; background: rgba(255,255,255,.06); color: #8e8e93;
+    font-size: 20px; opacity: .35; }
+  #status { position: fixed; top: max(14px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left));
+    font-size: 12px; color: #636366; pointer-events: none; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center;
+    padding: 16px; z-index: 10; }
+  .overlay[hidden] { display: none; }
+  .card { background: var(--ui); border-radius: 18px; padding: 20px; width: min(560px, 100%); max-height: 100%; overflow-y: auto;
+    -webkit-user-select: text; user-select: text; }
+  .card h1 { font-size: 22px; margin: 0 0 6px; }
+  .card h2 { font-size: 17px; margin: 0 0 12px; }
+  .card p { color: var(--muted); margin: 0 0 14px; font-size: 15px; line-height: 1.4; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  input[type=text], input[type=password], select, textarea { width: 100%; font-size: 16px; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid #3a3a3c; background: var(--ui2); color: var(--txt); font-family: inherit; }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .check { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; font-size: 15px; color: var(--txt); }
+  .check input { width: 20px; height: 20px; }
+  button.primary, button.secondary { font-size: 17px; padding: 12px 18px; border-radius: 12px; border: 0; font-weight: 600; }
+  button.primary { background: var(--accent); color: #fff; }
+  button.secondary { background: var(--ui2); color: var(--txt); }
+  .buttons { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .small { font-size: 12px; color: #8e8e93; margin-top: 6px; line-height: 1.4; }
+  #textbar { position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    width: min(92vw, 700px); display: none; gap: 8px; z-index: 5; }
+  #textbar.show { display: flex; }
+  #textbar input { flex: 1; }
+</style>
+</head>
+<body>
+<canvas id="face"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<div id="caption"></div>
+<button id="gear" aria-label="Instellingen">⚙︎</button>
+<form id="textbar" autocomplete="off">
+  <input id="textin" type="text" placeholder="Typ iets tegen je DeskMate…">
+  <button class="primary" type="submit">Stuur</button>
+</form>
+
+<div class="overlay" id="startScreen">
+  <div class="card">
+    <h1>DeskMate</h1>
+    <p>Zet je iPhone liggend op de standaard. Tik op Start; de app vraagt dan toegang tot camera en microfoon.</p>
+    <p><b>Bediening:</b> tik op het gezicht om te praten · aai over het scherm · houd 1 seconde vast of tik op ⚙︎ voor instellingen.</p>
+    <div class="buttons">
+      <button class="primary" id="startBtn">Start</button>
+      <button class="secondary" id="startSettingsBtn">Instellingen</button>
+    </div>
+    <div class="small" id="startNote"></div>
+  </div>
+</div>
+
+<div class="overlay" id="settingsScreen" hidden>
+  <div class="card">
+    <h2>Instellingen</h2>
+    <label for="sServer">Adres van je Ollama-server (pc)</label>
+    <input id="sServer" type="text" placeholder="https://jouw-pc.jouw-tailnet.ts.net" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="small">Het https-adres dat <i>tailscale serve</i> op je pc toont (zie LEESMIJ). Alles blijft op je eigen pc.</div>
+    <label for="sModel">Model</label>
+    <div class="row">
+      <select id="sModel"><option value="">— eerst modellen ophalen —</option></select>
+      <button class="secondary" id="loadModels" type="button" style="flex:0 0 auto">Ophalen</button>
+    </div>
+    <div class="small">Tip: gemma3 kan ook meekijken via de camera. gemma3:4b is snel, gemma3:12b slimmer (12 GB videogeheugen nodig).</div>
+    <div class="row">
+      <div><label for="sName">Naam robot</label><input id="sName" type="text"></div>
+      <div><label for="sUser">Jouw naam</label><input id="sUser" type="text"></div>
+    </div>
+    <label for="sPersona">Persoonlijkheid</label>
+    <textarea id="sPersona"></textarea>
+    <label for="sVoice">Stem</label>
+    <select id="sVoice"></select>
+    <label for="sRate">Spreeksnelheid: <span id="rateVal"></span></label>
+    <input id="sRate" type="range" min="0.7" max="1.3" step="0.05" style="width:100%">
+    <label class="check"><input id="sAlways" type="checkbox"> Blijf luisteren na elk antwoord</label>
+    <label class="check"><input id="sVision" type="checkbox"> Camerabeeld meesturen als je vraagt wat hij ziet</label>
+    <label class="check"><input id="sCaptions" type="checkbox"> Ondertitels tonen</label>
+    <label class="check"><input id="sGreet" type="checkbox"> Begroeten als hij je ziet</label>
+    <label for="sColor">Kleur ogen</label>
+    <input id="sColor" type="text" placeholder="#7fe7ff">
+    <div class="buttons">
+      <button class="primary" id="saveSettings" type="button">Opslaan</button>
+      <button class="secondary" id="testVoice" type="button">Test stem</button>
+      <button class="secondary" id="clearChat" type="button">Gesprek wissen</button>
+    </div>
+    <div class="small" id="settingsNote"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ---------- Instellingen (alleen op dit toestel) ---------- */
+const DEFAULTS = {
+  server: '', model: '', name: 'Loona', user: 'Ronald',
+  persona: 'Je bent nieuwsgierig, vrolijk en een beetje grappig. Je helpt bij werk en planning, maar je bent ook gewoon gezellig gezelschap.',
+  voice: '', rate: 1.0, always: false, vision: true, captions: true, greet: true, color: '#7fe7ff'
+};
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+let S = Object.assign({}, DEFAULTS, store.get('deskmate.settings', {}));
+if ('key' in S) { delete S.key; store.set('deskmate.settings', S); }   // oude Claude-sleutel opruimen
+
+/* ---------- Elementen ---------- */
+const $ = id => document.getElementById(id);
+const canvas = $('face'), ctx = canvas.getContext('2d');
+const video = $('cam'), captionEl = $('caption'), statusEl = $('status');
+
+/* ---------- Gezicht ---------- */
+const EMO = {
+  neutraal:   { open: 1.0, scale: 1.0, happy: 0,   lidIn: 0,    lidOut: 0,    blush: 0, gy: 0 },
+  blij:       { open: 1.0, scale: 1.0, happy: 1,   lidIn: 0,    lidOut: 0,    blush: 0, gy: 0 },
+  verlegen:   { open: 0.9, scale: 0.95, happy: 0.8, lidIn: 0,   lidOut: 0,    blush: 1, gy: 0.25 },
+  verdrietig: { open: 0.8, scale: 0.95, happy: 0,  lidIn: -0.05, lidOut: 0.35, blush: 0, gy: 0.35 },
+  boos:       { open: 0.8, scale: 1.0, happy: 0,   lidIn: 0.4,  lidOut: 0,    blush: 0, gy: 0 },
+  verrast:    { open: 1.15, scale: 1.18, happy: 0, lidIn: 0,    lidOut: 0,    blush: 0, gy: -0.1 },
+  denkend:    { open: 0.85, scale: 0.95, happy: 0, lidIn: 0.12, lidOut: 0,    blush: 0, gy: -0.55, gx: 0.6 },
+  slaperig:   { open: 0.3, scale: 1.0, happy: 0,   lidIn: 0,    lidOut: 0,    blush: 0, gy: 0.2 },
+  slapen:     { open: 0.04, scale: 1.0, happy: 0,  lidIn: 0,    lidOut: 0,    blush: 0, gy: 0.3 },
+  luisteren:  { open: 1.05, scale: 1.07, happy: 0, lidIn: 0,    lidOut: 0,    blush: 0, gy: 0 }
+};
+const face = { open: 0.04, scale: 1, happy: 0, lidIn: 0, lidOut: 0, blush: 0, gx: 0, gy: 0.3 };
+let emotion = 'slapen', emotionUntil = 0, blinkT = 0, nextBlink = performance.now() + 2500;
+let lookX = 0, lookY = 0, nextSaccade = 0, talking = false, listening = false, thinking = false;
+let W = 0, H = 0, DPR = 1;
+
+function setEmotion(name, ms) {
+  if (!EMO[name]) name = 'neutraal';
+  emotion = name; emotionUntil = ms ? performance.now() + ms : 0;
+}
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize); resize();
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function rrect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+function drawEye(cx, cy, ew, eh, side, now) {
+  // side: -1 = linkeroog (op scherm), +1 = rechteroog
+  const x = cx - ew / 2, y = cy - eh / 2;
+  ctx.save();
+  ctx.shadowColor = S.color; ctx.shadowBlur = Math.max(12, ew * 0.18);
+  ctx.fillStyle = S.color;
+  rrect(x, y, ew, eh, Math.min(ew, eh) * 0.38);
+  ctx.fill();
+  ctx.restore();
+  // Ooglid boven (emotie): binnenkant / buitenkant
+  ctx.fillStyle = '#000';
+  const inner = cx - side * ew / 2, outer = cx + side * ew / 2;
+  const yIn = y + eh * face.lidIn, yOut = y + eh * face.lidOut;
+  if (face.lidIn > 0.01 || face.lidOut > 0.01) {
+    ctx.beginPath();
+    ctx.moveTo(inner - side * 30, y - 40); ctx.lineTo(outer + side * 30, y - 40);
+    ctx.lineTo(outer + side * 30, yOut + (yOut - yIn) * 0.15); ctx.lineTo(inner - side * 30, yIn - (yOut - yIn) * 0.15);
+    ctx.closePath(); ctx.fill();
+  }
+  // Blij: onderkant wegwerken zodat er een boogje overblijft
+  if (face.happy > 0.02) {
+    ctx.beginPath();
+    ctx.ellipse(cx, y + eh * (1.18 - 0.42 * face.happy), ew * 0.85, eh * 0.62 * face.happy + 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Blos
+  if (face.blush > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = 0.45 * face.blush; ctx.fillStyle = '#ff6b9a';
+    ctx.beginPath(); ctx.ellipse(cx + side * ew * 0.15, cy + eh * 0.62 + ew * 0.12, ew * 0.36, ew * 0.16, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function frame(now) {
+  if (emotionUntil && now > emotionUntil) { emotionUntil = 0; emotion = sleeping ? 'slapen' : 'neutraal'; }
+  let target = EMO[emotion];
+  if (listening) target = EMO.luisteren;
+  if (thinking) target = EMO.denkend;
+  if (sleeping && !listening && !thinking && !talking) target = EMO.slapen;
+
+  // Knipperen
+  if (now > nextBlink && !sleeping) { blinkT = now; nextBlink = now + 2000 + Math.random() * 4500; }
+  const bt = (now - blinkT) / 160;
+  const blink = bt >= 0 && bt < 1 ? Math.abs(Math.cos(bt * Math.PI)) * 0.95 + 0.05 : 1;
+
+  // Kijkrichting: gezicht volgen, anders rondkijken
+  if (!faceSeen() && now > nextSaccade) {
+    lookX = (Math.random() * 2 - 1) * 0.6; lookY = (Math.random() * 2 - 1) * 0.35;
+    nextSaccade = now + 1500 + Math.random() * 3000;
+  }
+  const tgx = target.gx !== undefined ? target.gx : lookX;
+  const tgy = (target.gy || 0) + (target.gx !== undefined ? 0 : lookY);
+
+  const k = 0.18;
+  for (const p of ['open', 'scale', 'happy', 'lidIn', 'lidOut', 'blush']) face[p] = lerp(face[p], target[p], k);
+  face.gx = lerp(face.gx, Math.max(-1, Math.min(1, tgx)), 0.12);
+  face.gy = lerp(face.gy, Math.max(-1, Math.min(1, tgy)), 0.12);
+
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const base = Math.min(W, H * 1.6);
+  let ew = base * 0.17 * face.scale, eh = Math.min(H * 0.5, base * 0.29) * face.scale;
+  let bounce = 0;
+  if (talking) { bounce = Math.sin(now / 90) * 0.05 + Math.sin(now / 37) * 0.025; }
+  if (listening) { ew *= 1 + Math.sin(now / 260) * 0.025; }
+  const openH = Math.max(eh * face.open * blink * (1 + bounce), 4);
+  const gap = base * 0.17;
+  const cx = W / 2 + face.gx * W * 0.12, cy = H / 2 + face.gy * H * 0.14;
+  drawEye(cx - gap / 2 - ew / 2, cy, ew, openH, -1, now);
+  drawEye(cx + gap / 2 + ew / 2, cy, ew, openH, 1, now);
+
+  if (sleeping && !listening && !talking) {
+    ctx.fillStyle = S.color; ctx.globalAlpha = 0.55;
+    ctx.font = `600 ${Math.round(base * 0.05)}px -apple-system, sans-serif`;
+    const zt = (now / 1200) % 1;
+    ctx.globalAlpha = 0.6 * (1 - zt);
+    ctx.fillText('z', cx + gap + ew, cy - eh * 0.4 - zt * 40);
+    ctx.globalAlpha = 0.35;
+    ctx.font = `500 ${Math.round(base * 0.045)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    const d = new Date();
+    ctx.fillText(d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }), W / 2, H * 0.86);
+    ctx.textAlign = 'start'; ctx.globalAlpha = 1;
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- Camera + gezichtsdetectie ---------- */
+let detector = null, lastFaceAt = 0, sleeping = true, lastGreet = 0, camOk = false;
+function faceSeen() { return performance.now() - lastFaceAt < 1500; }
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    video.srcObject = stream; await video.play(); camOk = true;
+  } catch (e) { status('Geen camera: ' + e.message); return; }
+  try {
+    const base = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+    const vision = await import(base + '/vision_bundle.mjs');
+    const files = await vision.FilesetResolver.forVisionTasks(base + '/wasm');
+    const opts = d => ({ baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite', delegate: d }, runningMode: 'VIDEO', minDetectionConfidence: 0.5 });
+    try { detector = await vision.FaceDetector.createFromOptions(files, opts('GPU')); }
+    catch (e) { detector = await vision.FaceDetector.createFromOptions(files, opts('CPU')); }
+    status('');
+    detectLoop();
+  } catch (e) { status('Gezichtsherkenning niet geladen: ' + e.message); }
+}
+let lastDetect = 0;
+function detectLoop() {
+  const now = performance.now();
+  if (detector && video.readyState >= 2 && now - lastDetect > 90) {
+    lastDetect = now;
+    try {
+      const r = detector.detectForVideo(video, now);
+      const d = r.detections && r.detections[0];
+      if (d) {
+        const b = d.boundingBox, vw = video.videoWidth || 640, vh = video.videoHeight || 480;
+        const fx = (b.originX + b.width / 2) / vw, fy = (b.originY + b.height / 2) / vh;
+        lookX = -(fx - 0.5) * 2.2;            // spiegelen: frontcamera
+        lookY = (fy - 0.45) * 1.8;
+        onFace(now);
+      }
+    } catch (e) {}
+  }
+  if (!faceSeen() && !sleeping && !talking && !listening && !thinking && performance.now() - lastFaceAt > 60000 && performance.now() - lastActivity > 60000) {
+    sleeping = true;
+  }
+  requestAnimationFrame(detectLoop);
+}
+function onFace(now) {
+  const wasAway = now - lastFaceAt > 20000;
+  lastFaceAt = now;
+  if (sleeping) {
+    sleeping = false; setEmotion('verrast', 900);
+    setTimeout(() => setEmotion('blij', 2500), 900);
+  }
+  if (wasAway && S.greet && now - lastGreet > 10 * 60000 && !talking && !listening && !thinking) {
+    lastGreet = now;
+    const h = new Date().getHours();
+    const part = h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond';
+    setTimeout(() => say(`${part} ${S.user}!`, 'blij'), 1000);
+  }
+}
+let lastActivity = performance.now();
+
+/* ---------- Spreken ---------- */
+let voices = [];
+function loadVoices() {
+  voices = (window.speechSynthesis ? speechSynthesis.getVoices() : []).filter(v => /^nl/i.test(v.lang));
+  const sel = $('sVoice'); sel.innerHTML = '';
+  if (!voices.length) { sel.innerHTML = '<option value="">Standaard (geen Nederlandse stem gevonden)</option>'; return; }
+  for (const v of voices) { const o = document.createElement('option'); o.value = v.name; o.textContent = `${v.name} (${v.lang})`; sel.appendChild(o); }
+  if (S.voice) sel.value = S.voice;
+}
+if (window.speechSynthesis) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+
+function say(text, emo) {
+  lastActivity = performance.now();
+  if (emo) setEmotion(emo);
+  showCaption(null, text);
+  if (!window.speechSynthesis) { status('Deze browser kan niet spreken.'); setTimeout(afterSpeech, 1500); return; }
+  const speak = () => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'nl-NL'; u.rate = Number(S.rate) || 1; u.volume = 1;
+    if (!voices.length) loadVoices();
+    const v = voices.find(v => v.name === S.voice) || voices[0];
+    if (v) u.voice = v;
+    u.onstart = () => { talking = true; clearTimeout(noSoundTimer); speechNote(''); };
+    u.onend = () => { talking = false; afterSpeech(); };
+    u.onerror = e => { talking = false; clearTimeout(noSoundTimer); speechNote('Stemfout: ' + (e.error || 'onbekend')); afterSpeech(); };
+    currentUtt = u;                       // referentie bewaren (anders kan de browser hem opruimen)
+    speechSynthesis.resume();
+    speechSynthesis.speak(u);
+    clearTimeout(noSoundTimer);
+    noSoundTimer = setTimeout(() => {
+      if (!talking) speechNote('Ik hoor mezelf niet. Staat je iPhone op stil (schakelaar/actieknop) of het volume op 0?');
+    }, 2500);
+  };
+  // iOS-bug: direct na cancel() spreken geeft geen geluid; daarom even wachten
+  if (speechSynthesis.speaking || speechSynthesis.pending) { speechSynthesis.cancel(); setTimeout(speak, 250); }
+  else speak();
+}
+let currentUtt = null, noSoundTimer = 0;
+function speechNote(t) {
+  status(t);
+  if (!$('settingsScreen').hidden) $('settingsNote').textContent = t;
+}
+function afterSpeech() {
+  lastActivity = performance.now();
+  setEmotion(emotion, 2500);
+  if (S.always && sr) setTimeout(() => { if (!talking && !thinking) startListening(); }, 400);
+}
+
+/* ---------- Luisteren ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let sr = null;
+if (SR) {
+  sr = new SR(); sr.lang = 'nl-NL'; sr.interimResults = true; sr.continuous = false; sr.maxAlternatives = 1;
+  let finalText = '';
+  sr.onstart = () => { listening = true; finalText = ''; sleeping = false; };
+  sr.onresult = e => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalText += t; else interim += t;
+    }
+    showCaption(finalText + interim, null);
+  };
+  sr.onerror = e => { listening = false; if (e.error === 'not-allowed') status('Microfoon niet toegestaan'); };
+  sr.onend = () => { listening = false; const t = finalText.trim(); finalText = ''; if (t) ask(t); };
+}
+function startListening() {
+  if (!sr) { $('textbar').classList.add('show'); $('textin').focus(); return; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  talking = false;
+  try { sr.start(); } catch (e) {}
+}
+function stopListening() { if (sr) try { sr.stop(); } catch (e) {} }
+
+/* ---------- Brein: lokaal taalmodel via Ollama ---------- */
+function serverUrl(raw) {
+  let s = (raw !== undefined ? raw : S.server || '').trim().replace(/\/+$/, '');
+  if (s && !/^https?:\/\//i.test(s)) s = 'https://' + s;
+  return s;
+}
+let history = [];
+const TAGS = ['neutraal', 'blij', 'verdrietig', 'boos', 'verrast', 'denkend', 'verlegen', 'slaperig'];
+function systemPrompt() {
+  const now = new Date().toLocaleString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `Je bent ${S.name}, een kleine bureaurobot in de stijl van de Loona DeskMate. Je staat op het bureau van ${S.user}. ` +
+    `Je gezicht is het scherm van een iPhone met twee grote ogen; je hoort via de microfoon en kunt soms via de frontcamera kijken. ` +
+    `Je antwoord wordt hardop voorgelezen, dus: spreek Nederlands, kort en natuurlijk (meestal 1 tot 3 zinnen), zonder markdown, opsommingen, emoji of URL's. ` +
+    `Begin elk antwoord met precies één emotie-tag tussen blokhaken, gekozen uit: ${TAGS.map(t => '[' + t + ']').join(' ')}. ` +
+    `Het is nu ${now}. ${S.persona}`;
+}
+function wantsVision(t) { return S.vision && camOk && /\b(zie|ziet|kijk|kijken|zien|draag|hou ik|houd ik|wat is dit|wie ben ik|hoe zie ik)\b/i.test(t); }
+function snapshot() {
+  const c = document.createElement('canvas'); const w = 512, h = Math.round(512 * (video.videoHeight || 480) / (video.videoWidth || 640));
+  c.width = w; c.height = h; const g = c.getContext('2d');
+  g.translate(w, 0); g.scale(-1, 1); g.drawImage(video, 0, 0, w, h);
+  return c.toDataURL('image/jpeg', 0.7).split(',')[1];
+}
+async function ask(text) {
+  lastActivity = performance.now(); sleeping = false;
+  if (!serverUrl() || !S.model) { say('Ik heb nog geen brein. Vul in de instellingen het adres van je pc in en kies een model.', 'verdrietig'); return; }
+  const userMsg = { role: 'user', content: text };
+  const withImage = wantsVision(text);
+  if (withImage) userMsg.images = [snapshot()];
+  const messages = [{ role: 'system', content: systemPrompt() }].concat(history, [userMsg]);
+  thinking = true;
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 90000);
+  try {
+    const r = await fetch(serverUrl() + '/api/chat', {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: S.model, messages, stream: false, keep_alive: '30m', options: { num_predict: 300, temperature: 0.8 } })
+    });
+    clearTimeout(to);
+    const data = await r.json().catch(() => ({}));
+    thinking = false;
+    if (!r.ok) {
+      const msg = data.error || r.statusText;
+      if (r.status === 404) say('Dat model staat niet op je pc. Haal de modellen opnieuw op in de instellingen.', 'verdrietig');
+      else if (r.status === 403) say('Mijn pc laat me niet binnen. Kijk in de leesmij bij OLLAMA_ORIGINS.', 'verdrietig');
+      else if (withImage && /image|vision|multimodal/i.test(msg)) say('Dit model kan niet kijken. Kies een model zoals gemma3.', 'verdrietig');
+      else say('Er ging iets mis met mijn brein.', 'verdrietig');
+      status('Fout ' + r.status + ': ' + msg);
+      return;
+    }
+    status('');
+    let reply = ((data.message && data.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    let emo = 'neutraal';
+    const m = reply.match(/^\s*\[([a-zë]+)\]\s*/i);
+    if (m) { if (TAGS.includes(m[1].toLowerCase())) emo = m[1].toLowerCase(); reply = reply.slice(m[0].length); }
+    reply = reply.replace(/\[[a-zë]+\]/gi, '').replace(/[*_#`]/g, '').trim();
+    history.push({ role: 'user', content: withImage ? '[foto van de camera] ' + text : text });
+    history.push({ role: 'assistant', content: reply || '…' });
+    if (history.length > 30) history = history.slice(-30);
+    showCaption(text, reply);
+    say(reply || 'Hmm.', emo === 'slaperig' ? 'slaperig' : emo);
+    showCaption(text, reply);
+  } catch (e) {
+    clearTimeout(to); thinking = false;
+    if (e.name === 'AbortError') say('Ik denk te lang na. Probeer een kleiner model.', 'slaperig');
+    else say('Ik kan mijn brein op je pc niet bereiken. Staat de pc aan?', 'verdrietig');
+    status('Verbindingsfout: ' + e.message);
+  }
+}
+
+/* ---------- Ondertitels & status ---------- */
+let capTimer = 0;
+function showCaption(you, bot) {
+  if (!S.captions) return;
+  captionEl.innerHTML = '';
+  if (you) { const s = document.createElement('span'); s.className = 'you'; s.textContent = you; captionEl.appendChild(s); }
+  if (bot) captionEl.appendChild(document.createTextNode(bot));
+  captionEl.classList.add('show');
+  clearTimeout(capTimer); capTimer = setTimeout(() => captionEl.classList.remove('show'), 7000);
+}
+function status(t) { statusEl.textContent = t || ''; }
+
+/* ---------- Aanraken ---------- */
+let pDown = null, pDist = 0, longTimer = 0, longFired = false;
+canvas.addEventListener('pointerdown', e => {
+  pDown = { x: e.clientX, y: e.clientY }; pDist = 0; longFired = false;
+  longTimer = setTimeout(() => { longFired = true; openSettings(); }, 900);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!pDown) return;
+  pDist += Math.hypot(e.clientX - pDown.x, e.clientY - pDown.y); pDown = { x: e.clientX, y: e.clientY };
+  if (pDist > 25) clearTimeout(longTimer);
+});
+canvas.addEventListener('pointerup', () => {
+  clearTimeout(longTimer);
+  if (!pDown || longFired) { pDown = null; return; }
+  pDown = null; lastActivity = performance.now(); sleeping = false;
+  if (pDist > 160) { setEmotion('verlegen', 2500); return; }       // aaien
+  if (listening) { stopListening(); return; }
+  startListening();
+});
+$('gear').addEventListener('click', openSettings);
+$('textbar').addEventListener('submit', e => {
+  e.preventDefault(); const t = $('textin').value.trim(); $('textin').value = '';
+  $('textbar').classList.remove('show'); if (t) ask(t);
+});
+
+/* ---------- Instellingen-scherm ---------- */
+function openSettings() {
+  $('sServer').value = S.server || ''; $('sName').value = S.name; $('sUser').value = S.user; $('sPersona').value = S.persona;
+  $('sRate').value = S.rate; $('rateVal').textContent = Number(S.rate).toFixed(2);
+  $('sAlways').checked = S.always; $('sVision').checked = S.vision; $('sCaptions').checked = S.captions; $('sGreet').checked = S.greet;
+  $('sColor').value = S.color;
+  const sel = $('sModel');
+  if (S.model && ![...sel.options].some(o => o.value === S.model)) { const o = document.createElement('option'); o.value = o.textContent = S.model; sel.appendChild(o); }
+  sel.value = S.model || '';
+  loadVoices();
+  $('settingsNote').textContent = '';
+  $('settingsScreen').hidden = false;
+}
+function readSettings() {
+  S.server = serverUrl($('sServer').value); S.model = $('sModel').value; S.name = $('sName').value.trim() || DEFAULTS.name;
+  S.user = $('sUser').value.trim() || DEFAULTS.user; S.persona = $('sPersona').value.trim();
+  S.voice = $('sVoice').value; S.rate = Number($('sRate').value);
+  S.always = $('sAlways').checked; S.vision = $('sVision').checked; S.captions = $('sCaptions').checked; S.greet = $('sGreet').checked;
+  S.color = /^#[0-9a-f]{3,8}$/i.test($('sColor').value.trim()) ? $('sColor').value.trim() : DEFAULTS.color;
+}
+$('sRate').addEventListener('input', () => { $('rateVal').textContent = Number($('sRate').value).toFixed(2); });
+$('saveSettings').addEventListener('click', () => { readSettings(); store.set('deskmate.settings', S); $('settingsScreen').hidden = true; });
+$('testVoice').addEventListener('click', () => {
+  readSettings();
+  $('settingsNote').textContent = voices.length ? 'Stem testen…' : 'Geen Nederlandse stem gevonden; de standaardstem wordt gebruikt.';
+  say(`Hoi ${S.user}, ik ben ${S.name}.`, 'blij');
+});
+$('clearChat').addEventListener('click', () => { history = []; $('settingsNote').textContent = 'Gesprek gewist.'; });
+$('loadModels').addEventListener('click', async () => {
+  const url = serverUrl($('sServer').value), note = $('settingsNote');
+  if (!url) { note.textContent = 'Vul eerst het adres van je pc in.'; return; }
+  if (location.protocol === 'https:' && url.startsWith('http:')) {
+    note.textContent = 'Let op: een http-adres wordt vanaf een https-pagina geblokkeerd. Gebruik het https-adres van tailscale serve.';
+  } else note.textContent = 'Modellen ophalen…';
+  try {
+    const r = await fetch(url + '/api/tags');
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { note.textContent = 'Fout ' + r.status + ': ' + (data.error || r.statusText) + (r.status === 403 ? ' (zet OLLAMA_ORIGINS, zie LEESMIJ)' : ''); return; }
+    const models = (data.models || []).map(m => ({ id: m.name || m.model, size: m.size }));
+    const sel = $('sModel'); sel.innerHTML = '';
+    for (const m of models) { const o = document.createElement('option'); o.value = m.id; o.textContent = m.size ? `${m.id} (${(m.size / 1e9).toFixed(1)} GB)` : m.id; sel.appendChild(o); }
+    const pick = models.find(m => /gemma3/i.test(m.id)) || models[0];
+    if (S.model && models.some(m => m.id === S.model)) sel.value = S.model; else if (pick) sel.value = pick.id;
+    note.textContent = models.length ? `Verbonden. ${models.length} model(len) gevonden.` : 'Verbonden, maar er staan nog geen modellen op je pc (ollama pull gemma3:4b).';
+  } catch (e) { note.textContent = 'Kon je pc niet bereiken (' + e.message + '). Staat Ollama en Tailscale aan op pc en iPhone?'; }
+});
+
+/* ---------- Start ---------- */
+let wakeLock = null;
+async function keepAwake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+$('startSettingsBtn').addEventListener('click', openSettings);
+$('startBtn').addEventListener('click', async () => {
+  $('startScreen').hidden = true;
+  if (window.speechSynthesis) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } // iOS: stem ontgrendelen
+  keepAwake();
+  sleeping = false; setEmotion('verrast', 800); setTimeout(() => setEmotion('blij', 2000), 800);
+  lastActivity = performance.now();
+  await startCamera();
+  if (!S.server || !S.model) setTimeout(() => say(`Hoi ${S.user}! Vul in de instellingen het adres van je pc in, dan kan ik met je praten.`, 'blij'), 1200);
+});
+if (!SR) $('startNote').textContent = 'Spraakherkenning wordt in deze browser niet ondersteund; je kunt dan typen.';
+</script>
+</body>
+</html>
