@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DeskMate">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-512.png">
+<title>DeskMate</title>
+<style>
+  :root { --eye: #7fe7ff; --ui: #1c1c1e; --ui2: #2c2c2e; --txt: #f2f2f7; --muted: #a1a1aa; --accent: #0a84ff; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--txt); overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+  #face { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
+  #cam { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  #caption { position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    max-width: min(92vw, 900px); text-align: center; font-size: 17px; line-height: 1.35; color: #e5e5ea;
+    background: rgba(28,28,30,.72); padding: 8px 14px; border-radius: 14px; opacity: 0; transition: opacity .4s; pointer-events: none; }
+  #caption.show { opacity: 1; }
+  #caption .you { color: var(--muted); display: block; font-size: 14px; }
+  #gear { position: fixed; top: max(10px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
+    width: 40px; height: 40px; border-radius: 20px; border: 0; background: rgba(255,255,255,.06); color: #8e8e93;
+    font-size: 20px; opacity: .35; }
+  #status { position: fixed; top: max(14px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left));
+    font-size: 12px; color: #636366; pointer-events: none; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center;
+    padding: 16px; z-index: 10; }
+  .overlay[hidden] { display: none; }
+  .card { background: var(--ui); border-radius: 18px; padding: 20px; width: min(560px, 100%); max-height: 100%; overflow-y: auto;
+    -webkit-user-select: text; user-select: text; }
+  .card h1 { font-size: 22px; margin: 0 0 6px; }
+  .card h2 { font-size: 17px; margin: 0 0 12px; }
+  .card p { color: var(--muted); margin: 0 0 14px; font-size: 15px; line-height: 1.4; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  input[type=text], input[type=password], select, textarea { width: 100%; font-size: 16px; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid #3a3a3c; background: var(--ui2); color: var(--txt); font-family: inherit; }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .check { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; font-size: 15px; color: var(--txt); }
+  .check input { width: 20px; height: 20px; }
+  button.primary, button.secondary { font-size: 17px; padding: 12px 18px; border-radius: 12px; border: 0; font-weight: 600; }
+  button.primary { background: var(--accent); color: #fff; }
+  button.secondary { background: var(--ui2); color: var(--txt); }
+  .buttons { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+  .small { font-size: 12px; color: #8e8e93; margin-top: 6px; line-height: 1.4; }
+  #textbar { position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    width: min(92vw, 700px); display: none; gap: 8px; z-index: 5; }
+  #textbar.show { display: flex; }
+  #textbar input { flex: 1; }
+</style>
+</head>
+<body>
+<canvas id="face"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<div id="caption"></div>
+<button id="gear" aria-label="Instellingen">⚙︎</button>
+<form id="textbar" autocomplete="off">
+  <input id="textin" type="text" placeholder="Typ iets tegen je DeskMate…">
+  <button class="primary" type="submit">Stuur</button>
+</form>
+
+<div class="overlay" id="startScreen">
+  <div class="card">
+    <h1>DeskMate</h1>
+    <p>Zet je iPhone liggend op de standaard. Tik op Start; de app vraagt dan toegang tot camera en microfoon.</p>
+    <p><b>Bediening:</b> tik op het gezicht om te praten · aai over het scherm · houd 1 seconde vast of tik op ⚙︎ voor instellingen.</p>
+    <div class="buttons">
+      <button class="primary" id="startBtn">Start</button>
+      <button class="secondary" id="startSettingsBtn">Instellingen</button>
+    </div>
+    <div class="small" id="startNote"></div>
+  </div>
+</div>
+
+<div class="overlay" id="settingsScreen" hidden>
+  <div class="card">
+    <h2>Instellingen</h2>
+    <label for="sServer">Adres van je Ollama-server (pc)</label>
+    <input id="sServer" type="text" placeholder="https://jouw-pc.jouw-tailnet.ts.net" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="small">Het https-adres dat <i>tailscale serve</i> op je pc toont (zie LEESMIJ). Alles blijft op je eigen pc.</div>
+    <label for="sModel">Model</label>
+    <div class="row">
+      <select id="sModel"><option value="">— eerst modellen ophalen —</option></select>
+      <button class="secondary" id="loadModels" type="button" style="flex:0 0 auto">Ophalen</button>
+    </div>
+    <div class="small">Tip: gemma3 kan ook meekijken via de camera. gemma3:4b is snel, gemma3:12b slimmer (12 GB videogeheugen nodig).</div>
+    <div class="row">
+      <div><label for="sName">Naam robot</label><input id="sName" type="text"></div>
+      <div><label for="sUser">Jouw naam</label><input id="sUser" type="text"></div>
+    </div>
+    <label for="sPersona">Persoonlijkheid</label>
+    <textarea id="sPersona"></textarea>
+    <label for="sVoiceSrc">Stembron</label>
+    <select id="sVoiceSrc">
+      <option value="pc">Eigen robotstem van mijn pc (Piper)</option>
+      <option value="iphone">Stem van de iPhone</option>
+    </select>
+    <div id="pcVoiceBox">
+      <label for="sTts">Adres stemserver (pc)</label>
+      <input id="sTts" type="text" placeholder="https://jouw-pc.jouw-tailnet.ts.net:8443" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label for="sPcVoice">Stem op de pc</label>
+      <div class="row">
+        <select id="sPcVoice"><option value="">— eerst stemmen ophalen —</option></select>
+        <button class="secondary" id="loadPcVoices" type="button" style="flex:0 0 auto">Ophalen</button>
+      </div>
+      <label for="sRobot">Robot-effect: <span id="robotVal"></span></label>
+      <input id="sRobot" type="range" min="0" max="1" step="0.05" style="width:100%">
+    </div>
+    <div id="iphoneVoiceBox">
+      <label for="sVoice">Stem van de iPhone</label>
+      <select id="sVoice"></select>
+    </div>
+    <label for="sPitch">Toonhoogte: <span id="pitchVal"></span></label>
+    <input id="sPitch" type="range" min="0.8" max="1.6" step="0.05" style="width:100%">
+    <label for="sRate">Spreeksnelheid: <span id="rateVal"></span></label>
+    <input id="sRate" type="range" min="0.7" max="1.3" step="0.05" style="width:100%">
+    <label class="check"><input id="sAlways" type="checkbox"> Blijf luisteren na elk antwoord</label>
+    <label class="check"><input id="sVision" type="checkbox"> Camerabeeld meesturen als je vraagt wat hij ziet</label>
+    <label class="check"><input id="sCaptions" type="checkbox"> Ondertitels tonen</label>
+    <label class="check"><input id="sGreet" type="checkbox"> Begroeten als hij je ziet</label>
+    <div class="row">
+      <div><label for="sColor">Kleur iris</label><input id="sColor" type="text" placeholder="#1f6fc4"></div>
+      <div><label for="sBg">Achtergrond</label><select id="sBg"><option value="licht">Licht</option><option value="donker">Donker</option></select></div>
+    </div>
+    <div class="buttons">
+      <button class="primary" id="saveSettings" type="button">Opslaan</button>
+      <button class="secondary" id="testVoice" type="button">Test stem</button>
+      <button class="secondary" id="clearChat" type="button">Gesprek wissen</button>
+    </div>
+    <div class="small" id="settingsNote"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ---------- Instellingen (alleen op dit toestel) ---------- */
+const DEFAULTS = {
+  server: '', model: '', name: 'Loona', user: 'Ronald',
+  persona: 'Je bent nieuwsgierig, vrolijk en een beetje grappig. Je helpt bij werk en planning, maar je bent ook gewoon gezellig gezelschap.',
+  voice: '', rate: 1.0, voiceSrc: 'pc', tts: '', pcVoice: '', pitch: 1.25, robot: 0.5, always: false, vision: true, captions: true, greet: true, color: '#1f6fc4', bg: 'licht'
+};
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+let S = Object.assign({}, DEFAULTS, store.get('deskmate.settings', {}));
+if (['#7fe7ff', '#8a2a12'].includes(S.color)) S.color = DEFAULTS.color;   // oude standaardkleuren -> blauwe iris
+if ('key' in S) { delete S.key; store.set('deskmate.settings', S); }   // oude Claude-sleutel opruimen
+
+/* ---------- Elementen ---------- */
+const $ = id => document.getElementById(id);
+const canvas = $('face'), ctx = canvas.getContext('2d');
+const video = $('cam'), captionEl = $('caption'), statusEl = $('status');
+
+/* ---------- Gezicht: cartoonogen met oogleden, iris en wenkbrauwen ---------- */
+// open = hoe ver de oogleden open zijn · tilt = schuin ooglid (+ boos, - verdrietig) · lower = onderlid omhoog (lachen)
+// bL/bR = wenkbrauw links/rechts: [hoogte, kanteling (+ binnenkant omlaag), boog]
+const EMO = {
+  neutraal:   { open: 0.78, tilt: 0,     lower: 0.05, pupil: 1.0,  blush: 0, bL: [0.05, 0, 0.5] },
+  blij:       { open: 0.72, tilt: 0,     lower: 0.5,  pupil: 1.05, blush: 0, bL: [0.22, -0.1, 0.75] },
+  verlegen:   { open: 0.6,  tilt: -0.1,  lower: 0.45, pupil: 1.1,  blush: 1, gx: -0.45, gy: 0.4, bL: [0.12, -0.25, 0.6] },
+  verdrietig: { open: 0.6,  tilt: -0.45, lower: 0.05, pupil: 1.1,  blush: 0, gy: 0.45, bL: [0.05, -0.7, 0.35] },
+  boos:       { open: 0.55, tilt: 0.5,   lower: 0.15, pupil: 0.85, blush: 0, bL: [-0.12, 0.75, 0.2] },
+  verrast:    { open: 1.0,  tilt: 0,     lower: 0,    pupil: 0.65, blush: 0, bL: [0.6, -0.05, 0.9] },
+  denkend:    { open: 0.62, tilt: 0.1,   lower: 0.05, pupil: 1.0,  blush: 0, gx: 0.65, gy: -0.6, bL: [0.35, -0.2, 0.9], bR: [-0.02, 0.25, 0.2] },
+  sceptisch:  { open: 0.55, tilt: 0,     lower: 0.05, pupil: 1.0,  blush: 0, gx: 0.15, bL: [0.32, -0.1, 0.95], bR: [0.0, 0.15, 0.25] },
+  ondeugend:  { open: 0.5,  tilt: 0.15,  lower: 0.35, pupil: 1.0,  blush: 0, gx: 0.3, bL: [0.3, -0.1, 0.9], bR: [0.0, 0.35, 0.3] },
+  slaperig:   { open: 0.28, tilt: -0.1,  lower: 0.05, pupil: 1.0,  blush: 0, gy: 0.2, bL: [-0.05, -0.1, 0.3] },
+  slapen:     { open: 0.0,  tilt: 0,     lower: 0.0,  pupil: 1.0,  blush: 0, gy: 0.3, bL: [-0.08, 0, 0.3] },
+  luisteren:  { open: 0.9,  tilt: 0,     lower: 0.05, pupil: 1.15, blush: 0, bL: [0.2, -0.1, 0.7] }
+};
+const face = { open: 0, tilt: 0, lower: 0, pupil: 1, blush: 0, gx: 0, gy: 0.3, bL: [-0.08, 0, 0.3], bR: [-0.08, 0, 0.3] };
+let emotion = 'slapen', emotionUntil = 0, blinkT = 0, nextBlink = performance.now() + 2500;
+let lookX = 0, lookY = 0, nextSaccade = 0, talking = false, listening = false, thinking = false;
+let W = 0, H = 0, DPR = 1;
+
+function setEmotion(name, ms) {
+  if (!EMO[name]) name = 'neutraal';
+  emotion = name; emotionUntil = ms ? performance.now() + ms : 0;
+}
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize); resize();
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function colors() {
+  const dark = S.bg === 'donker';
+  return { bg: dark ? '#141416' : '#f5f2ea', ink: dark ? '#ecebe6' : '#151515', white: '#ffffff', iris: S.color || '#1f6fc4' };
+}
+
+function drawEye(cx, cy, R, side, o, brow, C) {
+  // side: -1 = oog links op het scherm, +1 = rechts. De binnenkant (neus) ligt richting het midden.
+  const rx = R * 1.05, ry = R;
+  const inner = cx - side * rx * 1.15, outer = cx + side * rx * 1.15;
+  const yLid = cy - ry + (1 - o) * 2 * ry * 0.98;
+  const yIn = yLid + face.tilt * R * 0.5, yOut = yLid - face.tilt * R * 0.2;
+  const lowCy = cy + ry * 2.4 - face.lower * ry * 1.3, lowRx = rx * 1.3, lowRy = ry * 1.15;
+  const eyePath = () => { ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); };
+
+  // 1. Oogwit, iris, pupil en lichtpuntjes binnen de oogvorm
+  ctx.save(); eyePath(); ctx.clip();
+  ctx.fillStyle = C.white; ctx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
+  const ir = R * 0.6, ix = cx + face.gx * rx * 0.38, iy = cy + R * 0.12 + face.gy * ry * 0.3;
+  ctx.fillStyle = C.iris; ctx.beginPath(); ctx.arc(ix, iy, ir, 0, Math.PI * 2); ctx.fill();
+  const g = ctx.createRadialGradient(ix - ir * 0.2, iy - ir * 0.2, ir * 0.1, ix, iy, ir);
+  g.addColorStop(0, 'rgba(200,235,255,0.35)'); g.addColorStop(0.6, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ix, iy, ir, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = R * 0.045; ctx.stroke();
+  ctx.fillStyle = '#0b0b0b'; ctx.beginPath(); ctx.arc(ix, iy, R * 0.27 * face.pupil, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath(); ctx.arc(ix + ir * 0.28, iy - ir * 0.3, R * 0.12, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ix + ir * 0.05, iy - ir * 0.02, R * 0.05, 0, Math.PI * 2); ctx.fill();
+  // schaduw van het bovenlid op het oogwit
+  const sh = ctx.createLinearGradient(0, yLid, 0, yLid + R * 0.35);
+  sh.addColorStop(0, 'rgba(0,0,0,0.18)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sh; ctx.fillRect(cx - rx, yLid - R, rx * 2, R * 1.4);
+  // bovenlid en onderlid in achtergrondkleur
+  ctx.fillStyle = C.bg;
+  ctx.beginPath(); ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.lineTo(outer, cy - ry * 3); ctx.lineTo(inner, cy - ry * 3); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  // randje anti-aliasing wegpoetsen buiten de oogleden
+  ctx.save(); ctx.beginPath(); ctx.ellipse(cx, cy, rx + 3, ry + 3, 0, 0, Math.PI * 2); ctx.clip();
+  ctx.fillStyle = C.bg;
+  ctx.beginPath(); ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.lineTo(outer, cy - ry * 3); ctx.lineTo(inner, cy - ry * 3); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // 2. Omlijning van de oogkom: alleen onder het bovenlid en boven het onderlid
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.lineTo(outer, cy + ry * 3); ctx.lineTo(inner, cy + ry * 3); ctx.closePath();
+  ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, 0, Math.PI * 2);
+  ctx.clip('evenodd');
+  ctx.strokeStyle = C.ink; ctx.lineWidth = R * 0.075; eyePath(); ctx.stroke();
+  ctx.restore();
+
+  // 3. Dikke ooglidlijn
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx * 1.1, ry * 1.1, 0, 0, Math.PI * 2); ctx.clip();
+  ctx.strokeStyle = C.ink; ctx.lineWidth = R * 0.13; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(inner, yIn); ctx.lineTo(outer, yOut); ctx.stroke();
+  ctx.restore();
+
+  // 4. Onderlid-lijntje bij lachen
+  if (face.lower > 0.08 && o > 0.05) {
+    ctx.save(); eyePath(); ctx.clip();
+    ctx.strokeStyle = C.ink; ctx.lineWidth = R * 0.07;
+    ctx.beginPath(); ctx.ellipse(cx, lowCy, lowRx, lowRy, 0, Math.PI, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // 5. Wenkbrauw
+  const [bY, bT, bA] = brow;
+  const xi = cx - side * rx * 0.8, xo = cx + side * rx * 1.05, mx = (xi + xo) / 2 + side * rx * 0.08;
+  const baseY = cy - ry - R * 0.5 - bY * R;
+  const yi = baseY + bT * R * 0.45, yo = baseY - bT * R * 0.15 + R * 0.12;
+  const ctrlY = Math.min(yi, yo) - bA * R * 0.6, th = R * 0.3;
+  ctx.fillStyle = C.ink; ctx.strokeStyle = C.ink; ctx.lineWidth = R * 0.07; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(xi, yi);
+  ctx.quadraticCurveTo(mx, ctrlY - th, xo, yo);
+  ctx.quadraticCurveTo(mx, ctrlY + th * 0.35, xi, yi + th * 0.25);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+
+  // 6. Blos
+  if (face.blush > 0.02) {
+    ctx.save(); ctx.globalAlpha = 0.4 * face.blush; ctx.fillStyle = '#ff6b8a';
+    ctx.beginPath(); ctx.ellipse(cx + side * R * 0.2, cy + ry * 1.3, R * 0.55, R * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function frame(now) {
+  if (emotionUntil && now > emotionUntil) { emotionUntil = 0; emotion = sleeping ? 'slapen' : 'neutraal'; }
+  let target = EMO[emotion];
+  if (listening) target = EMO.luisteren;
+  if (thinking) target = EMO.denkend;
+  if (sleeping && !listening && !thinking && !talking) target = EMO.slapen;
+
+  // Knipperen
+  if (now > nextBlink && !sleeping) { blinkT = now; nextBlink = now + 2000 + Math.random() * 4500; }
+  const bt = (now - blinkT) / 170;
+  const blink = bt >= 0 && bt < 1 ? Math.abs(Math.cos(bt * Math.PI)) : 1;
+
+  // Kijkrichting: gezicht volgen, anders rondkijken
+  if (!faceSeen() && now > nextSaccade) {
+    lookX = (Math.random() * 2 - 1) * 0.6; lookY = (Math.random() * 2 - 1) * 0.35;
+    nextSaccade = now + 1500 + Math.random() * 3000;
+  }
+  const tgx = target.gx !== undefined ? target.gx : lookX;
+  const tgy = target.gy !== undefined ? target.gy : lookY;
+
+  const k = 0.16;
+  for (const p of ['open', 'tilt', 'lower', 'pupil', 'blush']) face[p] = lerp(face[p], target[p], k);
+  const tR = target.bR || target.bL;
+  for (let i = 0; i < 3; i++) { face.bL[i] = lerp(face.bL[i], target.bL[i], k); face.bR[i] = lerp(face.bR[i], tR[i], k); }
+  face.gx = lerp(face.gx, Math.max(-1, Math.min(1, tgx)), 0.12);
+  face.gy = lerp(face.gy, Math.max(-1, Math.min(1, tgy)), 0.12);
+
+  // Praten: wenkbrauwen en ogen bewegen mee met het stemvolume
+  let lvl = 0;
+  if (talking) lvl = currentSrc ? voiceLevel() : (Math.sin(now / 90) * 0.5 + 0.5) * 0.6;
+  speakLevel = lerp(speakLevel, lvl, 0.35);
+
+  const C = colors();
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  const base = Math.min(W, H * 1.7);
+  const R = base * 0.13;
+  const cx = W / 2 + face.gx * R * 0.25, cy = H * 0.57 + face.gy * R * 0.15 - speakLevel * R * 0.05;
+  const o = Math.max(0, Math.min(1, face.open * blink + speakLevel * 0.08));
+  const lift = speakLevel * 0.3;
+  const bl = [face.bL[0] + lift, face.bL[1], face.bL[2]], br = [face.bR[0] + lift, face.bR[1], face.bR[2]];
+  drawEye(cx - R * 1.38, cy, R, -1, o, bl, C);
+  drawEye(cx + R * 1.38, cy, R, 1, o, br, C);
+
+  if (sleeping && !listening && !talking) {
+    ctx.fillStyle = C.ink;
+    ctx.font = `600 ${Math.round(base * 0.05)}px -apple-system, sans-serif`;
+    const zt = (now / 1200) % 1;
+    ctx.globalAlpha = 0.6 * (1 - zt);
+    ctx.fillText('z', cx + R * 2.7, cy - R * 0.9 - zt * 40);
+    ctx.globalAlpha = 0.35;
+    ctx.font = `500 ${Math.round(base * 0.045)}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }), W / 2, H * 0.9);
+    ctx.textAlign = 'start'; ctx.globalAlpha = 1;
+  }
+  requestAnimationFrame(frame);
+}
+let speakLevel = 0;
+requestAnimationFrame(frame);
+
+/* ---------- Camera + gezichtsdetectie ---------- */
+let detector = null, lastFaceAt = 0, sleeping = true, lastGreet = 0, camOk = false;
+function faceSeen() { return performance.now() - lastFaceAt < 1500; }
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    video.srcObject = stream; await video.play(); camOk = true;
+  } catch (e) { status('Geen camera: ' + e.message); return; }
+  try {
+    const base = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+    const vision = await import(base + '/vision_bundle.mjs');
+    const files = await vision.FilesetResolver.forVisionTasks(base + '/wasm');
+    const opts = d => ({ baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite', delegate: d }, runningMode: 'VIDEO', minDetectionConfidence: 0.5 });
+    try { detector = await vision.FaceDetector.createFromOptions(files, opts('GPU')); }
+    catch (e) { detector = await vision.FaceDetector.createFromOptions(files, opts('CPU')); }
+    status('');
+    detectLoop();
+  } catch (e) { status('Gezichtsherkenning niet geladen: ' + e.message); }
+}
+let lastDetect = 0;
+function detectLoop() {
+  const now = performance.now();
+  if (detector && video.readyState >= 2 && now - lastDetect > 90) {
+    lastDetect = now;
+    try {
+      const r = detector.detectForVideo(video, now);
+      const d = r.detections && r.detections[0];
+      if (d) {
+        const b = d.boundingBox, vw = video.videoWidth || 640, vh = video.videoHeight || 480;
+        const fx = (b.originX + b.width / 2) / vw, fy = (b.originY + b.height / 2) / vh;
+        lookX = -(fx - 0.5) * 2.2;            // spiegelen: frontcamera
+        lookY = (fy - 0.45) * 1.8;
+        onFace(now);
+      }
+    } catch (e) {}
+  }
+  if (!faceSeen() && !sleeping && !talking && !listening && !thinking && performance.now() - lastFaceAt > 60000 && performance.now() - lastActivity > 60000) {
+    sleeping = true;
+  }
+  requestAnimationFrame(detectLoop);
+}
+function onFace(now) {
+  const wasAway = now - lastFaceAt > 20000;
+  lastFaceAt = now;
+  if (sleeping) {
+    sleeping = false; setEmotion('verrast', 900);
+    setTimeout(() => setEmotion('blij', 2500), 900);
+  }
+  if (wasAway && S.greet && now - lastGreet > 10 * 60000 && !talking && !listening && !thinking) {
+    lastGreet = now;
+    const h = new Date().getHours();
+    const part = h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond';
+    setTimeout(() => say(`${part} ${S.user}!`, 'blij'), 1000);
+  }
+}
+let lastActivity = performance.now();
+
+/* ---------- Spreken ---------- */
+let voices = [];
+function loadVoices() {
+  voices = (window.speechSynthesis ? speechSynthesis.getVoices() : []).filter(v => /^nl/i.test(v.lang));
+  const sel = $('sVoice'); sel.innerHTML = '';
+  if (!voices.length) { sel.innerHTML = '<option value="">Standaard (geen Nederlandse stem gevonden)</option>'; return; }
+  for (const v of voices) { const o = document.createElement('option'); o.value = v.name; o.textContent = `${v.name} (${v.lang})`; sel.appendChild(o); }
+  if (S.voice) sel.value = S.voice;
+}
+if (window.speechSynthesis) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+
+function say(text, emo) {
+  lastActivity = performance.now();
+  if (emo) setEmotion(emo);
+  showCaption(null, text);
+  stopSpeech();
+  const id = ++sayId;
+  if (S.voiceSrc === 'pc' && ttsUrl()) {
+    sayPc(text, id).catch(e => {
+      if (id !== sayId) return;
+      speechNote('Pc-stem niet bereikbaar (' + e.message + '); ik gebruik de iPhone-stem.');
+      sayIphone(text);
+    });
+  } else sayIphone(text);
+}
+
+/* --- Eigen robotstem: Piper op de pc + effect in de app --- */
+let sayId = 0, actx = null, analyser = null, levelBuf = null, currentSrc = null, robotNodes = [];
+function ttsUrl() { return serverUrl(S.tts || ''); }
+function audioCtx() {
+  if (!actx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    actx = new AC();
+    analyser = actx.createAnalyser(); analyser.fftSize = 512; levelBuf = new Uint8Array(analyser.fftSize);
+    analyser.connect(actx.destination);
+  }
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function unlockAudio() {           // iOS: geluid pas na een tik toegestaan
+  const c = audioCtx(); if (!c) return;
+  const b = c.createBuffer(1, 1, 22050), s = c.createBufferSource(); s.buffer = b; s.connect(c.destination); s.start(0);
+}
+function voiceLevel() {
+  if (!analyser || !currentSrc) return 0;
+  analyser.getByteTimeDomainData(levelBuf);
+  let sum = 0; for (let i = 0; i < levelBuf.length; i++) { const v = (levelBuf[i] - 128) / 128; sum += v * v; }
+  return Math.min(1, Math.sqrt(sum / levelBuf.length) * 4);
+}
+function setAudioSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) {} }
+async function sayPc(text, id) {
+  const c = audioCtx(); if (!c) throw new Error('geen Web Audio');
+  const pitch = Math.max(0.8, Math.min(1.6, Number(S.pitch) || 1.25));
+  const speed = Number(S.rate) || 1;
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 20000);
+  const r = await fetch(ttsUrl() + '/tts', {
+    method: 'POST', signal: ctrl.signal, headers: { 'content-type': 'application/json' },
+    // Langzamer laten genereren en daarna sneller afspelen = hogere stem, zelfde tempo
+    body: JSON.stringify({ text, voice: S.pcVoice || undefined, length_scale: pitch / speed })
+  });
+  clearTimeout(to);
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || ('fout ' + r.status)); }
+  const data = await r.arrayBuffer();
+  const buf = await new Promise((ok, bad) => c.decodeAudioData(data, ok, bad));
+  if (id !== sayId) return;                      // intussen onderbroken
+  const src = c.createBufferSource(); src.buffer = buf; src.playbackRate.value = pitch;
+  // Effectketen: hoogdoorlaat (klein/schattig) -> droog + robot (ringmodulatie + metaalgalm) -> compressor
+  const robot = Math.max(0, Math.min(1, Number(S.robot)));
+  const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 160;
+  const dry = c.createGain(); dry.gain.value = 1 - robot * 0.55;
+  const ring = c.createGain(); ring.gain.value = 0;
+  const osc = c.createOscillator(); osc.type = 'sine'; osc.frequency.value = 55;
+  const oscAmt = c.createGain(); oscAmt.gain.value = 1; osc.connect(oscAmt); oscAmt.connect(ring.gain);
+  const ringMix = c.createGain(); ringMix.gain.value = robot * 0.9;
+  const delay = c.createDelay(0.05); delay.delayTime.value = 0.007;
+  const fb = c.createGain(); fb.gain.value = 0.35 + robot * 0.25;
+  const combMix = c.createGain(); combMix.gain.value = robot * 0.5;
+  const comp = c.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 4;
+  const out = c.createGain(); out.gain.value = 1.1;
+  src.connect(hp);
+  hp.connect(dry); dry.connect(comp);
+  hp.connect(ring); ring.connect(ringMix); ringMix.connect(comp);
+  hp.connect(delay); delay.connect(fb); fb.connect(delay); delay.connect(combMix); combMix.connect(comp);
+  comp.connect(out); out.connect(analyser);
+  robotNodes = [osc, src];
+  setAudioSession('playback');                   // ook geluid als de iPhone op stil staat
+  src.onended = () => {
+    try { osc.stop(); } catch (e) {}
+    if (currentSrc !== src) return;
+    currentSrc = null; talking = false; setAudioSession('auto'); afterSpeech();
+  };
+  currentSrc = src; talking = true; speechNote('');
+  osc.start(); src.start();
+}
+function stopSpeech() {
+  if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
+  if (currentSrc) { const s = currentSrc; currentSrc = null; for (const n of robotNodes) { try { n.stop(); } catch (e) {} } robotNodes = []; void s; }
+  talking = false;
+}
+
+/* --- Stem van de iPhone --- */
+function sayIphone(text) {
+  if (!window.speechSynthesis) { status('Deze browser kan niet spreken.'); setTimeout(afterSpeech, 1500); return; }
+  const speak = () => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'nl-NL'; u.rate = Number(S.rate) || 1; u.volume = 1;
+    u.pitch = Math.max(0.5, Math.min(2, Number(S.pitch) || 1));
+    if (!voices.length) loadVoices();
+    const v = voices.find(v => v.name === S.voice) || voices[0];
+    if (v) u.voice = v;
+    u.onstart = () => { talking = true; clearTimeout(noSoundTimer); speechNote(''); };
+    u.onend = () => { talking = false; afterSpeech(); };
+    u.onerror = e => { talking = false; clearTimeout(noSoundTimer); speechNote('Stemfout: ' + (e.error || 'onbekend')); afterSpeech(); };
+    currentUtt = u;                       // referentie bewaren (anders kan de browser hem opruimen)
+    speechSynthesis.resume();
+    speechSynthesis.speak(u);
+    clearTimeout(noSoundTimer);
+    noSoundTimer = setTimeout(() => {
+      if (!talking) speechNote('Ik hoor mezelf niet. Staat je iPhone op stil (schakelaar/actieknop) of het volume op 0?');
+    }, 2500);
+  };
+  // iOS-bug: direct na cancel() spreken geeft geen geluid; daarom even wachten
+  setTimeout(speak, 250);
+}
+let currentUtt = null, noSoundTimer = 0;
+function speechNote(t) {
+  status(t);
+  if (!$('settingsScreen').hidden) $('settingsNote').textContent = t;
+}
+function afterSpeech() {
+  lastActivity = performance.now();
+  setEmotion(emotion, 2500);
+  if (S.always && sr) setTimeout(() => { if (!talking && !thinking) startListening(); }, 400);
+}
+
+/* ---------- Luisteren ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let sr = null;
+if (SR) {
+  sr = new SR(); sr.lang = 'nl-NL'; sr.interimResults = true; sr.continuous = false; sr.maxAlternatives = 1;
+  let finalText = '';
+  sr.onstart = () => { listening = true; finalText = ''; sleeping = false; };
+  sr.onresult = e => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalText += t; else interim += t;
+    }
+    showCaption(finalText + interim, null);
+  };
+  sr.onerror = e => { listening = false; if (e.error === 'not-allowed') status('Microfoon niet toegestaan'); };
+  sr.onend = () => { listening = false; const t = finalText.trim(); finalText = ''; if (t) ask(t); };
+}
+function startListening() {
+  if (!sr) { $('textbar').classList.add('show'); $('textin').focus(); return; }
+  sayId++; stopSpeech();
+  try { sr.start(); } catch (e) {}
+}
+function stopListening() { if (sr) try { sr.stop(); } catch (e) {} }
+
+/* ---------- Brein: lokaal taalmodel via Ollama ---------- */
+function serverUrl(raw) {
+  let s = (raw !== undefined ? raw : S.server || '').trim().replace(/\/+$/, '');
+  if (s && !/^https?:\/\//i.test(s)) s = 'https://' + s;
+  return s;
+}
+let history = [];
+const TAGS = ['neutraal', 'blij', 'verdrietig', 'boos', 'verrast', 'denkend', 'verlegen', 'slaperig', 'sceptisch', 'ondeugend'];
+function systemPrompt() {
+  const now = new Date().toLocaleString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `Je bent ${S.name}, een kleine bureaurobot in de stijl van de Loona DeskMate. Je staat op het bureau van ${S.user}. ` +
+    `Je gezicht is het scherm van een iPhone met twee grote ogen; je hoort via de microfoon en kunt soms via de frontcamera kijken. ` +
+    `Je antwoord wordt hardop voorgelezen, dus: spreek Nederlands, kort en natuurlijk (meestal 1 tot 3 zinnen), zonder markdown, opsommingen, emoji of URL's. ` +
+    `Begin elk antwoord met precies één emotie-tag tussen blokhaken, gekozen uit: ${TAGS.map(t => '[' + t + ']').join(' ')}. ` +
+    `Het is nu ${now}. ${S.persona}`;
+}
+function wantsVision(t) { return S.vision && camOk && /\b(zie|ziet|kijk|kijken|zien|draag|hou ik|houd ik|wat is dit|wie ben ik|hoe zie ik)\b/i.test(t); }
+function snapshot() {
+  const c = document.createElement('canvas'); const w = 512, h = Math.round(512 * (video.videoHeight || 480) / (video.videoWidth || 640));
+  c.width = w; c.height = h; const g = c.getContext('2d');
+  g.translate(w, 0); g.scale(-1, 1); g.drawImage(video, 0, 0, w, h);
+  return c.toDataURL('image/jpeg', 0.7).split(',')[1];
+}
+async function ask(text) {
+  lastActivity = performance.now(); sleeping = false;
+  if (!serverUrl() || !S.model) { say('Ik heb nog geen brein. Vul in de instellingen het adres van je pc in en kies een model.', 'verdrietig'); return; }
+  const userMsg = { role: 'user', content: text };
+  const withImage = wantsVision(text);
+  if (withImage) userMsg.images = [snapshot()];
+  const messages = [{ role: 'system', content: systemPrompt() }].concat(history, [userMsg]);
+  thinking = true;
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 90000);
+  try {
+    const r = await fetch(serverUrl() + '/api/chat', {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: S.model, messages, stream: false, keep_alive: '30m', options: { num_predict: 300, temperature: 0.8 } })
+    });
+    clearTimeout(to);
+    const data = await r.json().catch(() => ({}));
+    thinking = false;
+    if (!r.ok) {
+      const msg = data.error || r.statusText;
+      if (r.status === 404) say('Dat model staat niet op je pc. Haal de modellen opnieuw op in de instellingen.', 'verdrietig');
+      else if (r.status === 403) say('Mijn pc laat me niet binnen. Kijk in de leesmij bij OLLAMA_ORIGINS.', 'verdrietig');
+      else if (withImage && /image|vision|multimodal/i.test(msg)) say('Dit model kan niet kijken. Kies een model zoals gemma3.', 'verdrietig');
+      else say('Er ging iets mis met mijn brein.', 'verdrietig');
+      status('Fout ' + r.status + ': ' + msg);
+      return;
+    }
+    status('');
+    let reply = ((data.message && data.message.content) || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    let emo = 'neutraal';
+    const m = reply.match(/^\s*\[([a-zë]+)\]\s*/i);
+    if (m) { if (TAGS.includes(m[1].toLowerCase())) emo = m[1].toLowerCase(); reply = reply.slice(m[0].length); }
+    reply = reply.replace(/\[[a-zë]+\]/gi, '').replace(/[*_#`]/g, '').trim();
+    history.push({ role: 'user', content: withImage ? '[foto van de camera] ' + text : text });
+    history.push({ role: 'assistant', content: reply || '…' });
+    if (history.length > 30) history = history.slice(-30);
+    showCaption(text, reply);
+    say(reply || 'Hmm.', emo === 'slaperig' ? 'slaperig' : emo);
+    showCaption(text, reply);
+  } catch (e) {
+    clearTimeout(to); thinking = false;
+    if (e.name === 'AbortError') say('Ik denk te lang na. Probeer een kleiner model.', 'slaperig');
+    else say('Ik kan mijn brein op je pc niet bereiken. Staat de pc aan?', 'verdrietig');
+    status('Verbindingsfout: ' + e.message);
+  }
+}
+
+/* ---------- Ondertitels & status ---------- */
+let capTimer = 0;
+function showCaption(you, bot) {
+  if (!S.captions) return;
+  captionEl.innerHTML = '';
+  if (you) { const s = document.createElement('span'); s.className = 'you'; s.textContent = you; captionEl.appendChild(s); }
+  if (bot) captionEl.appendChild(document.createTextNode(bot));
+  captionEl.classList.add('show');
+  clearTimeout(capTimer); capTimer = setTimeout(() => captionEl.classList.remove('show'), 7000);
+}
+function status(t) { statusEl.textContent = t || ''; }
+
+/* ---------- Aanraken ---------- */
+let pDown = null, pDist = 0, longTimer = 0, longFired = false;
+canvas.addEventListener('pointerdown', e => {
+  pDown = { x: e.clientX, y: e.clientY }; pDist = 0; longFired = false;
+  longTimer = setTimeout(() => { longFired = true; openSettings(); }, 900);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!pDown) return;
+  pDist += Math.hypot(e.clientX - pDown.x, e.clientY - pDown.y); pDown = { x: e.clientX, y: e.clientY };
+  if (pDist > 25) clearTimeout(longTimer);
+});
+canvas.addEventListener('pointerup', () => {
+  clearTimeout(longTimer);
+  if (!pDown || longFired) { pDown = null; return; }
+  pDown = null; lastActivity = performance.now(); sleeping = false;
+  if (pDist > 160) { setEmotion('verlegen', 2500); return; }       // aaien
+  if (listening) { stopListening(); return; }
+  startListening();
+});
+$('gear').addEventListener('click', openSettings);
+$('textbar').addEventListener('submit', e => {
+  e.preventDefault(); const t = $('textin').value.trim(); $('textin').value = '';
+  $('textbar').classList.remove('show'); if (t) ask(t);
+});
+
+/* ---------- Instellingen-scherm ---------- */
+function openSettings() {
+  $('sServer').value = S.server || ''; $('sName').value = S.name; $('sUser').value = S.user; $('sPersona').value = S.persona;
+  $('sRate').value = S.rate; $('rateVal').textContent = Number(S.rate).toFixed(2);
+  $('sVoiceSrc').value = S.voiceSrc; $('sTts').value = S.tts || '';
+  $('sPitch').value = S.pitch; $('pitchVal').textContent = Number(S.pitch).toFixed(2);
+  $('sRobot').value = S.robot; $('robotVal').textContent = Math.round(S.robot * 100) + '%';
+  const pv = $('sPcVoice');
+  if (S.pcVoice && ![...pv.options].some(o => o.value === S.pcVoice)) { const o = document.createElement('option'); o.value = o.textContent = S.pcVoice; pv.appendChild(o); }
+  pv.value = S.pcVoice || '';
+  showVoiceBoxes();
+  $('sAlways').checked = S.always; $('sVision').checked = S.vision; $('sCaptions').checked = S.captions; $('sGreet').checked = S.greet;
+  $('sColor').value = S.color; $('sBg').value = S.bg || 'licht';
+  const sel = $('sModel');
+  if (S.model && ![...sel.options].some(o => o.value === S.model)) { const o = document.createElement('option'); o.value = o.textContent = S.model; sel.appendChild(o); }
+  sel.value = S.model || '';
+  loadVoices();
+  $('settingsNote').textContent = '';
+  $('settingsScreen').hidden = false;
+}
+function readSettings() {
+  S.server = serverUrl($('sServer').value); S.model = $('sModel').value; S.name = $('sName').value.trim() || DEFAULTS.name;
+  S.user = $('sUser').value.trim() || DEFAULTS.user; S.persona = $('sPersona').value.trim();
+  S.voice = $('sVoice').value; S.rate = Number($('sRate').value);
+  S.voiceSrc = $('sVoiceSrc').value; S.tts = serverUrl($('sTts').value); S.pcVoice = $('sPcVoice').value;
+  S.pitch = Number($('sPitch').value); S.robot = Number($('sRobot').value);
+  S.always = $('sAlways').checked; S.vision = $('sVision').checked; S.captions = $('sCaptions').checked; S.greet = $('sGreet').checked;
+  S.bg = $('sBg').value;
+  S.color = /^#[0-9a-f]{3,8}$/i.test($('sColor').value.trim()) ? $('sColor').value.trim() : DEFAULTS.color;
+}
+$('sRate').addEventListener('input', () => { $('rateVal').textContent = Number($('sRate').value).toFixed(2); });
+$('sPitch').addEventListener('input', () => { $('pitchVal').textContent = Number($('sPitch').value).toFixed(2); });
+$('sRobot').addEventListener('input', () => { $('robotVal').textContent = Math.round($('sRobot').value * 100) + '%'; });
+function showVoiceBoxes() {
+  const pc = $('sVoiceSrc').value === 'pc';
+  $('pcVoiceBox').style.display = pc ? '' : 'none'; $('iphoneVoiceBox').style.display = pc ? 'none' : '';
+}
+$('sVoiceSrc').addEventListener('change', showVoiceBoxes);
+$('loadPcVoices').addEventListener('click', async () => {
+  const url = serverUrl($('sTts').value), note = $('settingsNote');
+  if (!url) { note.textContent = 'Vul eerst het adres van de stemserver in (eindigt op :8443).'; return; }
+  note.textContent = 'Stemmen ophalen…';
+  try {
+    const r = await fetch(url + '/voices'); const list = await r.json();
+    if (!r.ok || !Array.isArray(list)) { note.textContent = 'Fout ' + r.status; return; }
+    const sel = $('sPcVoice'); sel.innerHTML = '';
+    for (const v of list) { const o = document.createElement('option'); o.value = o.textContent = v; sel.appendChild(o); }
+    sel.value = list.includes(S.pcVoice) ? S.pcVoice : (list.find(v => /ronnie|pim/.test(v)) || list[0] || '');
+    note.textContent = list.length ? `Verbonden. ${list.length} stem(men) gevonden.` : 'Verbonden, maar er staan nog geen stemmen op je pc (draai stem-instellen.bat).';
+  } catch (e) { note.textContent = 'Kon de stemserver niet bereiken (' + e.message + '). Draait stem-starten.bat?'; }
+});
+$('saveSettings').addEventListener('click', () => { readSettings(); store.set('deskmate.settings', S); $('settingsScreen').hidden = true; });
+$('testVoice').addEventListener('click', () => {
+  readSettings(); unlockAudio();
+  $('settingsNote').textContent = voices.length ? 'Stem testen…' : 'Geen Nederlandse stem gevonden; de standaardstem wordt gebruikt.';
+  say(`Hoi ${S.user}, ik ben ${S.name}.`, 'blij');
+});
+$('clearChat').addEventListener('click', () => { history = []; $('settingsNote').textContent = 'Gesprek gewist.'; });
+$('loadModels').addEventListener('click', async () => {
+  const url = serverUrl($('sServer').value), note = $('settingsNote');
+  if (!url) { note.textContent = 'Vul eerst het adres van je pc in.'; return; }
+  if (location.protocol === 'https:' && url.startsWith('http:')) {
+    note.textContent = 'Let op: een http-adres wordt vanaf een https-pagina geblokkeerd. Gebruik het https-adres van tailscale serve.';
+  } else note.textContent = 'Modellen ophalen…';
+  try {
+    const r = await fetch(url + '/api/tags');
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { note.textContent = 'Fout ' + r.status + ': ' + (data.error || r.statusText) + (r.status === 403 ? ' (zet OLLAMA_ORIGINS, zie LEESMIJ)' : ''); return; }
+    const models = (data.models || []).map(m => ({ id: m.name || m.model, size: m.size }));
+    const sel = $('sModel'); sel.innerHTML = '';
+    for (const m of models) { const o = document.createElement('option'); o.value = m.id; o.textContent = m.size ? `${m.id} (${(m.size / 1e9).toFixed(1)} GB)` : m.id; sel.appendChild(o); }
+    const pick = models.find(m => /gemma3/i.test(m.id)) || models[0];
+    if (S.model && models.some(m => m.id === S.model)) sel.value = S.model; else if (pick) sel.value = pick.id;
+    note.textContent = models.length ? `Verbonden. ${models.length} model(len) gevonden.` : 'Verbonden, maar er staan nog geen modellen op je pc (ollama pull gemma3:4b).';
+  } catch (e) { note.textContent = 'Kon je pc niet bereiken (' + e.message + '). Staat Ollama en Tailscale aan op pc en iPhone?'; }
+});
+
+/* ---------- Start ---------- */
+let wakeLock = null;
+async function keepAwake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+$('startSettingsBtn').addEventListener('click', openSettings);
+$('startBtn').addEventListener('click', async () => {
+  $('startScreen').hidden = true;
+  if (window.speechSynthesis) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } // iOS: stem ontgrendelen
+  unlockAudio();
+  keepAwake();
+  sleeping = false; setEmotion('verrast', 800); setTimeout(() => setEmotion('blij', 2000), 800);
+  lastActivity = performance.now();
+  await startCamera();
+  if (!S.server || !S.model) setTimeout(() => say(`Hoi ${S.user}! Vul in de instellingen het adres van je pc in, dan kan ik met je praten.`, 'blij'), 1200);
+});
+if (!SR) $('startNote').textContent = 'Spraakherkenning wordt in deze browser niet ondersteund; je kunt dan typen.';
+</script>
+</body>
+</html>
